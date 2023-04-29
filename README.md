@@ -1,0 +1,1 @@
+See details in https://devtalk.blender.org/t/proposal-generate-stub-files-for-blender/15819

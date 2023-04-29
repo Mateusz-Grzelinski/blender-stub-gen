@@ -1,0 +1,1752 @@
+diff --git a/doc/python_api/sphinx_doc_gen.py b/doc/python_api/sphinx_doc_gen.py
+index 2c9445dce97..42d3252b1cc 100644
+--- a/doc/python_api/sphinx_doc_gen.py
++++ b/doc/python_api/sphinx_doc_gen.py
+@@ -17,6 +17,8 @@
+ # ##### END GPL LICENSE BLOCK #####
+ 
+ # <pep8 compliant>
++from dataclasses import dataclass, field
++from typing import NamedTuple, Any, TextIO, NoReturn, List, Dict, Tuple, Optional
+ 
+ SCRIPT_HELP_MSG = """
+ 
+@@ -62,6 +64,7 @@ except ImportError:
+     print("\nERROR: this script must run from inside Blender")
+     print(SCRIPT_HELP_MSG)
+     import sys
++
+     sys.exit()
+ 
+ import rna_info  # Blender module
+@@ -86,6 +89,7 @@ import logging
+ from textwrap import indent
+ 
+ from platform import platform
++
+ PLATFORM = platform().split('-')[0].lower()  # 'linux', 'darwin', 'windows'
+ 
+ SCRIPT_DIR = os.path.abspath(os.path.dirname(__file__))
+@@ -99,10 +103,9 @@ SCRIPT_DIR = os.path.abspath(os.path.dirname(__file__))
+ # See: D6261 for reference.
+ USE_ONLY_BUILTIN_RNA_TYPES = True
+ 
++
+ def handle_args():
+-    '''
+-    Parse the args passed to Blender after "--", ignored by Blender
+-    '''
++    """ Parse the args passed to Blender after "--", ignored by Blender """
+     import argparse
+ 
+     # When --help is given, print the usage text
+@@ -194,6 +197,7 @@ ARGS = handle_args()
+ 
+ # ----------------------------------BPY-----------------------------------------
+ 
++logging.basicConfig(level=logging.DEBUG, format='%(levelname)s %(pathname)s:%(lineno)d  %(message)s')
+ BPY_LOGGER = logging.getLogger('bpy')
+ BPY_LOGGER.setLevel(logging.DEBUG)
+ 
+@@ -271,6 +275,7 @@ else:
+     #
+     # TODO, support bpy.ops and bpy.types filtering
+     import fnmatch
++
+     m = None
+     EXCLUDE_MODULES = [m for m in EXCLUDE_MODULES if not fnmatch.fnmatchcase(m, ARGS.partial)]
+ 
+@@ -283,7 +288,7 @@ else:
+     if FILTER_BPY_TYPES:
+         EXCLUDE_MODULES.remove("bpy.types")
+ 
+-    print(FILTER_BPY_TYPES)
++    # print(FILTER_BPY_TYPES)
+ 
+     EXCLUDE_INFO_DOCS = (not fnmatch.fnmatchcase("info", ARGS.partial))
+ 
+@@ -334,7 +339,6 @@ EXTRA_SOURCE_FILES = (
+     "../examples/bpy.app.translations.py",
+ )
+ 
+-
+ # examples
+ EXAMPLES_DIR = os.path.abspath(os.path.join(SCRIPT_DIR, "examples"))
+ EXAMPLE_SET = set()
+@@ -346,22 +350,28 @@ EXAMPLE_SET_USED = set()
+ # rst files dir
+ RST_DIR = os.path.abspath(os.path.join(SCRIPT_DIR, "rst"))
+ 
++
+ # extra info, not api reference docs
+ # stored in ./rst/info_*
++class InfoDocs(NamedTuple):
++    file_name: str
++    description: str
++
++
+ INFO_DOCS = (
+-    ("info_quickstart.rst",
+-     "Quickstart: new to Blender or scripting and want to get your feet wet?"),
+-    ("info_overview.rst",
+-     "API Overview: a more complete explanation of Python integration"),
+-    ("info_api_reference.rst",
+-     "API Reference Usage: examples of how to use the API reference docs"),
+-    ("info_best_practice.rst",
+-     "Best Practice: Conventions to follow for writing good scripts"),
+-    ("info_tips_and_tricks.rst",
+-     "Tips and Tricks: Hints to help you while writing scripts for Blender"),
+-    ("info_gotcha.rst",
+-     "Gotcha's: some of the problems you may encounter when writing scripts"),
+-    ("change_log.rst", "List of changes since last Blender release"),
++    InfoDocs(file_name="info_quickstart.rst",
++             description="Quickstart: new to Blender or scripting and want to get your feet wet?"),
++    InfoDocs(file_name="info_overview.rst",
++             description="API Overview: a more complete explanation of Python integration"),
++    InfoDocs(file_name="info_api_reference.rst",
++             description="API Reference Usage: examples of how to use the API reference docs"),
++    InfoDocs(file_name="info_best_practice.rst",
++             description="Best Practice: Conventions to follow for writing good scripts"),
++    InfoDocs(file_name="info_tips_and_tricks.rst",
++             description="Tips and Tricks: Hints to help you while writing scripts for Blender"),
++    InfoDocs(file_name="info_gotcha.rst",
++             description="Gotcha's: some of the problems you may encounter when writing scripts"),
++    InfoDocs(file_name="change_log.rst", description="List of changes since last Blender release"),
+ )
+ 
+ # only support for properties atm.
+@@ -478,7 +488,7 @@ StaticMethodType = type(staticmethod(lambda: None))
+ from types import (
+     MemberDescriptorType,
+     MethodType,
+-    FunctionType,
++    FunctionType, ModuleType,
+ )
+ 
+ _BPY_STRUCT_FAKE = "bpy_struct"
+@@ -495,7 +505,7 @@ else:
+     bpy_struct = None
+ 
+ 
+-def escape_rst(text):
++def escape_rst(text: str):
+     """ Escape plain text which may contain characters used by RST.
+     """
+     return text.translate(escape_rst.trans)
+@@ -509,19 +519,23 @@ escape_rst.trans = str.maketrans({
+ })
+ 
+ 
+-def is_struct_seq(value):
++def is_struct_seq(value: Any):
++    """Is NamedTuple (in c code named Seqence"""
+     return isinstance(value, tuple) and type(tuple) != tuple and hasattr(value, "n_fields")
+ 
+ 
+-def undocumented_message(module_name, type_name, identifier):
+-    return "Undocumented, consider `contributing <https://developer.blender.org/T51061>`__."
++UNDOCUMENTED_MESSAGE = "Undocumented, consider `contributing <https://developer.blender.org/T51061>`__."
++
++
++def undocumented_message(module_name: str, type_name: str, identifier: str):
++    return UNDOCUMENTED_MESSAGE
+ 
+ 
+ def range_str(val):
+-    '''
++    """
+     Converts values to strings for the range directive.
+     (unused function it seems)
+-    '''
++    """
+     if val < -10000000:
+         return '-inf'
+     elif val > 10000000:
+@@ -564,23 +578,23 @@ def title_string(text, heading_char, double=False):
+         return "%s\n%s\n\n" % (text, filler)
+ 
+ 
+-def write_example_ref(ident, fw, example_id, ext="py"):
++def write_example_ref(ident: str, file: TextIO, example_id, ext="py"):
+     if example_id in EXAMPLE_SET:
+ 
+         # extract the comment
+         filepath = os.path.join("..", "examples", "%s.%s" % (example_id, ext))
+-        filepath_full = os.path.join(os.path.dirname(fw.__self__.name), filepath)
++        filepath_full = os.path.join(os.path.dirname(file.write.__self__.name), filepath)
+ 
+         text, line_no = example_extract_docstring(filepath_full)
+ 
+         for line in text.split("\n"):
+-            fw("%s\n" % (ident + line).rstrip())
+-        fw("\n")
++            file.write("%s\n" % (ident + line).rstrip())
++        file.write("\n")
+ 
+-        fw("%s.. literalinclude:: %s\n" % (ident, filepath))
++        file.write("%s.. literalinclude:: %s\n" % (ident, filepath))
+         if line_no > 0:
+-            fw("%s   :lines: %d-\n" % (ident, line_no))
+-        fw("\n")
++            file.write("%s   :lines: %d-\n" % (ident, line_no))
++        file.write("\n")
+         EXAMPLE_SET_USED.add(example_id)
+     else:
+         if bpy.app.debug:
+@@ -591,16 +605,16 @@ def write_example_ref(ident, fw, example_id, ext="py"):
+     while True:
+         example_id_num = "%s.%d" % (example_id, i)
+         if example_id_num in EXAMPLE_SET:
+-            write_example_ref(ident, fw, example_id_num, ext)
++            write_example_ref(ident, file, example_id_num, ext)
+             i += 1
+         else:
+             break
+ 
+ 
+-def write_indented_lines(ident, fn, text, strip=True):
+-    '''
++def write_indented_lines(ident: str, file: TextIO, text: str, strip=True):
++    """
+     Apply same indentation to all lines in a multilines text.
+-    '''
++    """
+     if text is None:
+         return
+ 
+@@ -619,17 +633,17 @@ def write_indented_lines(ident, fn, text, strip=True):
+             if l.strip():
+                 ident_strip = min(ident_strip, len(l) - len(l.lstrip()))
+         for l in lines:
+-            fn(ident + l[ident_strip:] + "\n")
++            file.write(ident + l[ident_strip:] + "\n")
+     else:
+         # add <indent> number of blanks to the current indentation
+         for l in lines:
+-            fn(ident + l + "\n")
++            file.write(ident + l + "\n")
+ 
+ 
+-def pymethod2sphinx(ident, fw, identifier, py_func):
+-    '''
++def pymethod2sphinx(ident: str, file: TextIO, identifier, py_func):
++    """
+     class method to sphinx
+-    '''
++    """
+     arg_str = inspect.formatargspec(*inspect.getargspec(py_func))
+     if arg_str.startswith("(self, "):
+         arg_str = "(" + arg_str[7:]
+@@ -640,16 +654,16 @@ def pymethod2sphinx(ident, fw, identifier, py_func):
+     else:
+         func_type = "staticmethod"
+ 
+-    fw(ident + ".. %s:: %s%s\n\n" % (func_type, identifier, arg_str))
++    file.write(ident + ".. %s:: %s%s\n\n" % (func_type, identifier, arg_str))
+     if py_func.__doc__:
+-        write_indented_lines(ident + "   ", fw, py_func.__doc__)
+-        fw("\n")
++        write_indented_lines(ident + "   ", file, py_func.__doc__)
++        file.write("\n")
+ 
+ 
+-def pyfunc2sphinx(ident, fw, module_name, type_name, identifier, py_func, is_class=True):
+-    '''
++def pyfunc2sphinx(ident: str, file: TextIO, module_name: str, type_name: str, identifier, py_func, is_class=True):
++    """
+     function or class method to sphinx
+-    '''
++    """
+ 
+     if type(py_func) == MethodType:
+         return
+@@ -671,23 +685,23 @@ def pyfunc2sphinx(ident, fw, module_name, type_name, identifier, py_func, is_cla
+ 
+     doc = py_func.__doc__
+     if (not doc) or (not doc.startswith(".. %s:: " % func_type)):
+-        fw(ident + ".. %s:: %s%s\n\n" % (func_type, identifier, arg_str))
++        file.write(ident + ".. %s:: %s%s\n\n" % (func_type, identifier, arg_str))
+         ident_temp = ident + "   "
+     else:
+         ident_temp = ident
+ 
+     if doc:
+-        write_indented_lines(ident_temp, fw, doc)
+-        fw("\n")
++        write_indented_lines(ident_temp, file, doc)
++        file.write("\n")
+     del doc, ident_temp
+ 
+     if is_class:
+-        write_example_ref(ident + "   ", fw, module_name + "." + type_name + "." + identifier)
++        write_example_ref(ident + "   ", file, module_name + "." + type_name + "." + identifier)
+     else:
+-        write_example_ref(ident + "   ", fw, module_name + "." + identifier)
++        write_example_ref(ident + "   ", file, module_name + "." + identifier)
+ 
+ 
+-def py_descr2sphinx(ident, fw, descr, module_name, type_name, identifier):
++def py_descr2sphinx(ident: str, file: TextIO, descr, module_name: str, type_name: str, identifier):
+     if identifier.startswith("_"):
+         return
+ 
+@@ -696,61 +710,59 @@ def py_descr2sphinx(ident, fw, descr, module_name, type_name, identifier):
+         doc = undocumented_message(module_name, type_name, identifier)
+ 
+     if type(descr) == GetSetDescriptorType:
+-        fw(ident + ".. attribute:: %s\n\n" % identifier)
+-        write_indented_lines(ident + "   ", fw, doc, False)
+-        fw("\n")
++        file.write(ident + ".. attribute:: %s\n\n" % identifier)
++        write_indented_lines(ident + "   ", file, doc, False)
++        file.write("\n")
+     elif type(descr) == MemberDescriptorType:  # same as above but use 'data'
+-        fw(ident + ".. data:: %s\n\n" % identifier)
+-        write_indented_lines(ident + "   ", fw, doc, False)
+-        fw("\n")
++        file.write(ident + ".. data:: %s\n\n" % identifier)
++        write_indented_lines(ident + "   ", file, doc, False)
++        file.write("\n")
+     elif type(descr) in {MethodDescriptorType, ClassMethodDescriptorType}:
+-        write_indented_lines(ident, fw, doc, False)
+-        fw("\n")
++        write_indented_lines(ident, file, doc, False)
++        file.write("\n")
+     else:
+         raise TypeError("type was not GetSetDescriptorType, MethodDescriptorType or ClassMethodDescriptorType")
+ 
+-    write_example_ref(ident + "   ", fw, module_name + "." + type_name + "." + identifier)
+-    fw("\n")
++    write_example_ref(ident + "   ", file, module_name + "." + type_name + "." + identifier)
++    file.write("\n")
+ 
+ 
+-def py_c_func2sphinx(ident, fw, module_name, type_name, identifier, py_func, is_class=True):
+-    '''
+-    c defined function to sphinx.
+-    '''
++def py_c_func2sphinx(ident: str, file: TextIO, module_name: str, type_name: str, identifier, py_func, is_class=True):
++    """ c defined function to sphinx. """
+ 
+     # dump the docstring, assume its formatted correctly
+     if py_func.__doc__:
+-        write_indented_lines(ident, fw, py_func.__doc__, False)
+-        fw("\n")
++        write_indented_lines(ident, file, py_func.__doc__, False)
++        file.write("\n")
+     else:
+-        fw(ident + ".. function:: %s()\n\n" % identifier)
+-        fw(ident + "   " + undocumented_message(module_name, type_name, identifier))
++        file.write(ident + ".. function:: %s()\n\n" % identifier)
++        file.write(ident + "   " + undocumented_message(module_name, type_name, identifier))
+ 
+     if is_class:
+-        write_example_ref(ident + "   ", fw, module_name + "." + type_name + "." + identifier)
++        write_example_ref(ident + "   ", file, module_name + "." + type_name + "." + identifier)
+     else:
+-        write_example_ref(ident + "   ", fw, module_name + "." + identifier)
++        write_example_ref(ident + "   ", file, module_name + "." + identifier)
+ 
+-    fw("\n")
++    file.write("\n")
+ 
+ 
+-def pyprop2sphinx(ident, fw, identifier, py_prop):
+-    '''
++def pyprop2sphinx(ident: str, file: TextIO, identifier, py_prop):
++    """
+     Python property to sphinx
+-    '''
++    """
+     # readonly properties use "data" directive, variables use "attribute" directive
+     if py_prop.fset is None:
+-        fw(ident + ".. data:: %s\n\n" % identifier)
++        file.write(ident + ".. data:: %s\n\n" % identifier)
+     else:
+-        fw(ident + ".. attribute:: %s\n\n" % identifier)
+-    write_indented_lines(ident + "   ", fw, py_prop.__doc__)
++        file.write(ident + ".. attribute:: %s\n\n" % identifier)
++    write_indented_lines(ident + "   ", file, py_prop.__doc__)
+     if py_prop.fset is None:
+-        fw(ident + "   (readonly)\n\n")
++        file.write(ident + "   (readonly)\n\n")
+     else:
+-        fw("\n")
++        file.write("\n")
+ 
+ 
+-def pymodule2sphinx(basepath, module_name, module, title):
++def pymodule2sphinx(basepath: str, module_name: str, module: ModuleType, title: str):
+     import types
+     attribute_set = set()
+     filepath = os.path.join(basepath, module_name + ".rst")
+@@ -782,22 +794,21 @@ def pymodule2sphinx(basepath, module_name, module, title):
+ 
+     def module_grouping_sort_key(name):
+         return module_grouping_index(name)
++
+     # done grouping support
+ 
+     file = open(filepath, "w", encoding="utf-8")
+ 
+-    fw = file.write
+-
+-    fw(title_string("%s (%s)" % (title, module_name), "="))
++    file.write(title_string("%s (%s)" % (title, module_name), "="))
+ 
+-    fw(".. module:: %s\n\n" % module_name)
++    file.write(".. module:: %s\n\n" % module_name)
+ 
+     if module.__doc__:
+         # Note, may contain sphinx syntax, don't mangle!
+-        fw(module.__doc__.strip())
+-        fw("\n\n")
++        file.write(module.__doc__.strip())
++        file.write("\n\n")
+ 
+-    write_example_ref("", fw, module_name)
++    write_example_ref("", file, module_name)
+ 
+     # write submodules
+     # we could also scan files but this ensures __all__ is used correctly
+@@ -817,12 +828,12 @@ def pymodule2sphinx(basepath, module_name, module, title):
+         del submod
+ 
+         if submod_ls:
+-            fw(".. toctree::\n")
+-            fw("   :maxdepth: 1\n\n")
++            file.write(".. toctree::\n")
++            file.write("   :maxdepth: 1\n\n")
+ 
+             for submod_name, submod in submod_ls:
+                 submod_name_full = "%s.%s" % (module_name, submod_name)
+-                fw("   %s.rst\n\n" % submod_name_full)
++                file.write("   %s.rst\n\n" % submod_name_full)
+ 
+                 pymodule2sphinx(basepath, submod_name_full, submod, "%s submodule" % module_name)
+         del submod_ls
+@@ -839,7 +850,7 @@ def pymodule2sphinx(basepath, module_name, module, title):
+         # "<class 'bpy.app.handlers'>" --> bpy.app.handlers
+         type_name = str(type(module)).strip("<>").split(" ", 1)[-1][1:-1]
+         if type(descr) == types.GetSetDescriptorType:
+-            py_descr2sphinx("", fw, descr, module_name, type_name, key)
++            py_descr2sphinx("", file, descr, module_name, type_name, key)
+             attribute_set.add(key)
+     descr_sorted = []
+     for key, descr in sorted(type(module).__dict__.items()):
+@@ -861,7 +872,7 @@ def pymodule2sphinx(basepath, module_name, module, title):
+             continue
+ 
+         type_name = value_type.__name__
+-        py_descr2sphinx("", fw, descr, module_name, type_name, key)
++        py_descr2sphinx("", file, descr, module_name, type_name, key)
+ 
+         attribute_set.add(key)
+ 
+@@ -897,12 +908,12 @@ def pymodule2sphinx(basepath, module_name, module, title):
+ 
+     for attribute, value, value_type in module_dir_value_type:
+         if value_type == FunctionType:
+-            pyfunc2sphinx("", fw, module_name, None, attribute, value, is_class=False)
++            pyfunc2sphinx("", file, module_name, None, attribute, value, is_class=False)
+         # both the same at the moment but to be future proof
+         elif value_type in {types.BuiltinMethodType, types.BuiltinFunctionType}:
+             # note: can't get args from these, so dump the string as is
+             # this means any module used like this must have fully formatted docstrings.
+-            py_c_func2sphinx("", fw, module_name, None, attribute, value, is_class=False)
++            py_c_func2sphinx("", file, module_name, None, attribute, value, is_class=False)
+         elif value_type == type:
+             classes.append((attribute, value))
+         elif issubclass(value_type, types.ModuleType):
+@@ -910,9 +921,9 @@ def pymodule2sphinx(basepath, module_name, module, title):
+         elif issubclass(value_type, (bool, int, float, str, tuple)):
+             # constant, not much fun we can do here except to list it.
+             # TODO, figure out some way to document these!
+-            fw(".. data:: %s\n\n" % attribute)
+-            write_indented_lines("   ", fw, "constant value %s" % repr(value), False)
+-            fw("\n")
++            file.write(".. data:: %s\n\n" % attribute)
++            write_indented_lines("   ", file, "constant value %s" % repr(value), False)
++            file.write("\n")
+         else:
+             BPY_LOGGER.debug("\tnot documenting %s.%s of %r type" % (module_name, attribute, value_type.__name__))
+             continue
+@@ -922,18 +933,18 @@ def pymodule2sphinx(basepath, module_name, module, title):
+     del module_dir_value_type
+ 
+     # TODO, bpy_extras does this already, mathutils not.
+-    '''
++    """
+     if submodules:
+-        fw("\n"
++        file.write("\n"
+            "**********\n"
+            "Submodules\n"
+            "**********\n"
+            "\n"
+            )
+         for attribute, submod in submodules:
+-            fw("* :mod:`%s.%s`\n" % (module_name, attribute))
+-        fw("\n")
+-    '''
++            file.write("* :mod:`%s.%s`\n" % (module_name, attribute))
++        file.write("\n")
++    """
+ 
+     if module_grouping is not None:
+         classes.sort(key=lambda pair: module_grouping_sort_key(pair[0]))
+@@ -944,53 +955,53 @@ def pymodule2sphinx(basepath, module_name, module, title):
+         if module_grouping is not None:
+             heading, heading_char = module_grouping_heading(type_name)
+             if heading:
+-                fw(title_string(heading, heading_char))
++                file.write(title_string(heading, heading_char))
+ 
+         # May need to be its own function
+         if value.__doc__:
+             if value.__doc__.startswith(".. class::"):
+-                fw(value.__doc__)
++                file.write(value.__doc__)
+             else:
+-                fw(".. class:: %s\n\n" % type_name)
+-                write_indented_lines("   ", fw, value.__doc__, True)
++                file.write(".. class:: %s\n\n" % type_name)
++                write_indented_lines("   ", file, value.__doc__, True)
+         else:
+-            fw(".. class:: %s\n\n" % type_name)
+-        fw("\n")
++            file.write(".. class:: %s\n\n" % type_name)
++        file.write("\n")
+ 
+-        write_example_ref("   ", fw, module_name + "." + type_name)
++        write_example_ref("   ", file, module_name + "." + type_name)
+ 
+         descr_items = [(key, descr) for key, descr in sorted(value.__dict__.items()) if not key.startswith("_")]
+ 
+         for key, descr in descr_items:
+             if type(descr) == ClassMethodDescriptorType:
+-                py_descr2sphinx("   ", fw, descr, module_name, type_name, key)
++                py_descr2sphinx("   ", file, descr, module_name, type_name, key)
+ 
+         # needed for pure Python classes
+         for key, descr in descr_items:
+             if type(descr) == FunctionType:
+-                pyfunc2sphinx("   ", fw, module_name, type_name, key, descr, is_class=True)
++                pyfunc2sphinx("   ", file, module_name, type_name, key, descr, is_class=True)
+ 
+         for key, descr in descr_items:
+             if type(descr) == MethodDescriptorType:
+-                py_descr2sphinx("   ", fw, descr, module_name, type_name, key)
++                py_descr2sphinx("   ", file, descr, module_name, type_name, key)
+ 
+         for key, descr in descr_items:
+             if type(descr) == GetSetDescriptorType:
+-                py_descr2sphinx("   ", fw, descr, module_name, type_name, key)
++                py_descr2sphinx("   ", file, descr, module_name, type_name, key)
+ 
+         for key, descr in descr_items:
+             if type(descr) == StaticMethodType:
+                 descr = getattr(value, key)
+-                write_indented_lines("   ", fw, descr.__doc__ or "Undocumented", False)
+-                fw("\n")
++                write_indented_lines("   ", file, descr.__doc__ or "Undocumented", False)
++                file.write("\n")
+ 
+-        fw("\n\n")
++        file.write("\n\n")
+ 
+     file.close()
+ 
+ 
+ # Changes in Blender will force errors here
+-context_type_map = {
++bpy_context_type_map = {
+     # context_member: (RNA type, is_collection)
+     "active_annotation_layer": ("GPencilLayer", False),
+     "active_base": ("ObjectBase", False),
+@@ -1082,62 +1093,71 @@ context_type_map = {
+     "world": ("World", False),
+ }
+ 
++_Title = str
++_Description = str
++
+ 
+-def pycontext2sphinx(basepath):
++@dataclass
++class BpyContext:
++    access_path: str = field(default_factory=str)
++    description: str = field(default_factory=str)
++    grouped_properties: Dict[_Title, Tuple[_Description, List['RNAProperty']]] = field(default_factory=dict)
++    """Important: from Python 3.6 onwards, the standard dict type maintains insertion order by default."""
++
++
++@dataclass
++class RNAProperty:
++    identifier: str
++    access_path: str = field(default_factory=str)
++    parsable_type: str = None
++    description: Optional[str] = ''
++
++
++def get_bpy_context() -> BpyContext:
+     # Only use once. very irregular
++    bpy_context = BpyContext()
++    bpy_context.access_path = 'bpy.context'
++    bpy_context.description = f".. module:: {bpy_context.access_path}\n" \
++                              "\n" \
++                              "The context members available depend on the area of Blender which is currently being accessed.\n" \
++                              "\n" \
++                              "Note that all context values are readonly,\n" \
++                              "but may be modified through the data api or by running operators\n\n"
+ 
+-    filepath = os.path.join(basepath, "bpy.context.rst")
+-    file = open(filepath, "w", encoding="utf-8")
+-    fw = file.write
+-    fw(title_string("Context Access (bpy.context)", "="))
+-    fw(".. module:: bpy.context\n")
+-    fw("\n")
+-    fw("The context members available depend on the area of Blender which is currently being accessed.\n")
+-    fw("\n")
+-    fw("Note that all context values are readonly,\n")
+-    fw("but may be modified through the data api or by running operators\n\n")
+-
+-    def write_contex_cls():
+-
+-        fw(title_string("Global Context", "-"))
+-        fw("These properties are available in any contexts.\n\n")
+-
+-        # very silly. could make these global and only access once.
+-        # structs, funcs, ops, props = rna_info.BuildRNAInfo()
+-        structs, funcs, ops, props = rna_info_BuildRNAInfo_cache()
+-        struct = structs[("", "Context")]
+-        struct_blacklist = RNA_BLACKLIST.get(struct.identifier, ())
+-        del structs, funcs, ops, props
++    # Context properties available in all contexts:
+ 
+-        sorted_struct_properties = struct.properties[:]
+-        sorted_struct_properties.sort(key=lambda prop: prop.identifier)
++    bpy_context.grouped_properties["Global Context"] = ("These properties are available in any contexts.", [])
+ 
+-        # First write RNA
+-        for prop in sorted_struct_properties:
+-            # support blacklisting props
+-            if prop.identifier in struct_blacklist:
+-                continue
++    # very silly. could make these global and only access once.
++    # structs, funcs, ops, props = rna_info.BuildRNAInfo()
++    structs, _funcs, _ops, _props = rna_info_BuildRNAInfo_cache()
++    struct = structs[("", "Context")]
++    struct_blacklist = RNA_BLACKLIST.get(struct.identifier, ())
++    del structs, _funcs, _ops, _props
+ 
+-            type_descr = prop.get_type_description(
+-                class_fmt=":class:`bpy.types.%s`", collection_id=_BPY_PROP_COLLECTION_ID)
+-            fw(".. data:: %s\n\n" % prop.identifier)
+-            if prop.description:
+-                fw("   %s\n\n" % prop.description)
++    sorted_struct_properties = struct.properties[:]
++    sorted_struct_properties.sort(key=lambda prop: prop.identifier)
+ 
+-            # special exception, can't use generic code here for enums
+-            if prop.type == "enum":
+-                enum_text = pyrna_enum2sphinx(prop)
+-                if enum_text:
+-                    write_indented_lines("   ", fw, enum_text)
+-                    fw("\n")
+-                del enum_text
+-            # end enum exception
++    # First write RNA
++    for prop in sorted_struct_properties:
++        # support blacklisting props
++        if prop.identifier in struct_blacklist:
++            continue
++        # todo this function needs to be improved to provide parsable python type
++        type_str = prop.get_type_description(
++            class_fmt="%s", collection_id=_BPY_PROP_COLLECTION_ID)
++        bpy_context_prop = RNAProperty(identifier=prop.identifier, access_path=f'bpy.types.{prop.identifier}',
++                                       parsable_type=f'bpy.types.{type_str}')
++        bpy_context_prop.description = prop.description  # can be None
+ 
+-            fw("   :type: %s\n\n" % type_descr)
++        # special exception, can't use generic code here for enums
++        if prop.type == "enum":
++            bpy_context_prop.description += get_doc_enum_property(prop)  # todo
++        # end enum exception
+ 
+-    write_contex_cls()
+-    del write_contex_cls
+-    # end
++        bpy_context.grouped_properties["Global Context"][1].append(bpy_context_prop)
++
++    # Context properties available in specific contexts:
+ 
+     # nasty, get strings directly from Blender because there is no other way to get it
+     import ctypes
+@@ -1156,8 +1176,8 @@ def pycontext2sphinx(basepath):
+     unique = set()
+     blend_cdll = ctypes.CDLL("")
+     for ctx_str in context_strings:
+-        subsection = "%s Context" % ctx_str.split("_")[0].title()
+-        fw("\n%s\n%s\n\n" % (subsection, (len(subsection) * '-')))
++        subsection_title = "%s Context" % ctx_str.split("_")[0].title()
++        bpy_context.grouped_properties[subsection_title] = ("", [])
+ 
+         attr = ctypes.addressof(getattr(blend_cdll, ctx_str))
+         c_char_p_p = ctypes.POINTER(ctypes.c_char_p)
+@@ -1165,28 +1185,85 @@ def pycontext2sphinx(basepath):
+         i = 0
+         while char_array[i] is not None:
+             member = ctypes.string_at(char_array[i]).decode(encoding="ascii")
+-            fw(".. data:: %s\n\n" % member)
+-            member_type, is_seq = context_type_map[member]
+-            fw("   :type: %s :class:`bpy.types.%s`\n\n" % ("sequence of " if is_seq else "", member_type))
++            member_type, is_seq = bpy_context_type_map[member]
++            bpy_context_prop = RNAProperty(identifier=member,
++                                           access_path=f'bpy.types.{member}',
++                                           parsable_type=f'typing.Sequence[bpy.types.{member_type}]' if is_seq else f'bpy.types.{member_type}',
++                                           # type_description=f":type:{' sequence of' if is_seq else ''} :class:`bpy.types.{member_type}`"
++                                           )
+             unique.add(member)
+             i += 1
++            bpy_context.grouped_properties[subsection_title][1].append(bpy_context_prop)
+ 
+-    # generate typemap...
+-    # for member in sorted(unique):
+-    #     print('        "%s": ("", False),' % member)
+-    if len(context_type_map) > len(unique):
++    if len(bpy_context_type_map) > len(unique):
+         raise Exception(
+             "Some types are not used: %s" %
+-            str([member for member in context_type_map if member not in unique]))
+-    else:
+-        pass  # will have raised an error above
++            str([member for member in bpy_context_type_map if member not in unique]))
+ 
+-    file.close()
++    return bpy_context
+ 
+ 
+-def pyrna_enum2sphinx(prop, use_empty_descriptions=False):
+-    """ write a bullet point list of enum + descriptions
+-    """
++def write_rst_bpy_context(basepath: str, bpy_context: BpyContext) -> NoReturn:
++    filepath = os.path.join(basepath, "bpy.context.rst")
++    file = open(filepath, "w", encoding="utf-8")
++    file.write(title_string("Context Access (bpy.context)", "="))
++    file.write(bpy_context.description)
++    for group_title, (description, bpy_properties) in bpy_context.grouped_properties.items():
++        file.write(title_string(group_title, "-"))
++        if description:
++            file.write(f"{description}\n\n")
++        for prop in bpy_properties:
++            file.write(f".. data:: {prop.identifier}\n\n")
++            if prop.description:
++                file.write(f"   {prop.description}\n\n")
++            file.write(f"   :type: :class: `{prop.parsable_type}`\n\n")  # todo do we need human readable type here
++
++
++def write_py_stub_bpy_context(basepath: str, bpy_context: BpyContext) -> NoReturn:
++    filepath = os.path.join(basepath, "bpy.context.pyi")
++    file = open(filepath, "w", encoding="utf-8")
++    file.write('\n"""\n')
++    file.write(title_string("Context Access (bpy.context)", "="))
++    file.write(bpy_context.description)  # todo escape inner quotes
++    file.write('"""\n\n')
++    file.write('import bpy\n'
++               'import typing\n'
++               'from typing_extensions import final\n')
++    grouped_properties = bpy_context.grouped_properties.copy()
++    global_context_description, global_context_properties = grouped_properties.pop("Global Context")
++    file.write(f'class _GlobalContext(bpy.types.bpy_struct):\n'  # this is fake class
++               f'    """{global_context_description}"""\n')
++    for prop in global_context_properties:
++        file.write(f"    @property\n"  # marks property as read only
++                   f"    @final\n"
++                   f"    def {prop.identifier}(self) -> '{prop.parsable_type}': ...\n")
++    file.write(f'GlobalContext = typing.Final[_GlobalContext]')
++
++    for group_title, (description, bpy_properties) in grouped_properties.items():
++        file.write(f'\n@final\n'
++                   f'class {group_title.strip().replace(" ", "")}(_GlobalContext):\n')
++        if description:
++            file.write('    """\n'
++                       f'    {description}\n'
++                       '    """\n\n')
++        for prop in bpy_properties:
++            file.write(f"    @property\n"
++                       f"    @final\n"
++                       f"    def {prop.identifier}(self) -> '{prop.parsable_type}':\n")
++            file.write('        """\n'
++                       f'        Available only in {group_title}\n')
++            if prop.description:
++                file.write(indent(prop.description, ' ' * 8))
++            else:
++                file.write(indent(UNDOCUMENTED_MESSAGE, ' ' * 8))
++            file.write('\n')
++            # file.write(prop.type_description)
++            file.write('        """\n'
++                       '        ...\n')
++
++
++def get_doc_enum_property(prop, use_empty_descriptions=False) -> str:
++    """ write a bullet point list of enum + descriptions """
+ 
+     if use_empty_descriptions:
+         ok = True
+@@ -1204,16 +1281,15 @@ def pyrna_enum2sphinx(prop, use_empty_descriptions=False):
+                 identifier,
+                 # Account for multi-line enum descriptions, allowing this to be a block of text.
+                 indent(", ".join(escape_rst(val) for val in (name, description) if val) or "Undocumented", "  "),
+-             )
++            )
+             for identifier, name, description in prop.enum_items
+         ])
+     else:
+         return ""
+ 
+ 
+-def pyrna2sphinx(basepath):
+-    """ bpy.types and bpy.ops
+-    """
++def pyrna2sphinx(basepath: str) -> NoReturn:
++    """ bpy.types and bpy.ops """
+     # structs, funcs, ops, props = rna_info.BuildRNAInfo()
+     structs, funcs, ops, props = rna_info_BuildRNAInfo_cache()
+ 
+@@ -1226,8 +1302,8 @@ def pyrna2sphinx(basepath):
+         for k, v in structs.items():
+             for p in v.properties:
+                 for identifier in (
+-                        getattr(p.srna, "identifier", None),
+-                        getattr(p.fixed_type, "identifier", None),
++                    getattr(p.srna, "identifier", None),
++                    getattr(p.fixed_type, "identifier", None),
+                 ):
+                     if identifier is not None:
+                         if identifier in structs_blacklist:
+@@ -1249,7 +1325,7 @@ def pyrna2sphinx(basepath):
+     if FILTER_BPY_OPS is not None:
+         ops = {k: v for k, v in ops.items() if v.module_name in FILTER_BPY_OPS}
+ 
+-    def write_param(ident, fw, prop, is_return=False):
++    def write_param(ident: str, file: TextIO, prop, is_return=False):
+         if is_return:
+             id_name = "return"
+             id_type = "rtype"
+@@ -1267,22 +1343,23 @@ def pyrna2sphinx(basepath):
+ 
+         type_descr = prop.get_type_description(**kwargs)
+ 
+-        enum_text = pyrna_enum2sphinx(prop)
++        enum_text = get_doc_enum_property(prop)
+ 
+         if prop.name or prop.description or enum_text:
+-            fw(ident + ":%s%s:\n\n" % (id_name, identifier))
++            file.write(ident + ":%s%s:\n\n" % (id_name, identifier))
+ 
+             if prop.name or prop.description:
+-                fw(indent(", ".join(val for val in (prop.name, prop.description) if val), ident + "   ") + "\n\n")
++                file.write(
++                    indent(", ".join(val for val in (prop.name, prop.description) if val), ident + "   ") + "\n\n")
+ 
+             # special exception, can't use generic code here for enums
+             if enum_text:
+-                write_indented_lines(ident + "   ", fw, enum_text)
+-                fw("\n")
++                write_indented_lines(ident + "   ", file, enum_text)
++                file.write("\n")
+             del enum_text
+             # end enum exception
+ 
+-        fw(ident + ":%s%s: %s\n" % (id_type, identifier, type_descr))
++        file.write(ident + ":%s%s: %s\n" % (id_type, identifier, type_descr))
+ 
+     def write_struct(struct):
+         # if not struct.identifier.startswith("Sc") and not struct.identifier.startswith("I"):
+@@ -1293,11 +1370,9 @@ def pyrna2sphinx(basepath):
+ 
+         struct_module_name = struct.module_name
+         if USE_ONLY_BUILTIN_RNA_TYPES:
+-            assert(struct_module_name == "bpy.types")
++            assert (struct_module_name == "bpy.types")
+         filepath = os.path.join(basepath, "%s.%s.rst" % (struct_module_name, struct.identifier))
+         file = open(filepath, "w", encoding="utf-8")
+-        fw = file.write
+-
+         base_id = getattr(struct.base, "identifier", "")
+         struct_id = struct.identifier
+ 
+@@ -1310,12 +1385,12 @@ def pyrna2sphinx(basepath):
+         else:
+             title = struct_id
+ 
+-        fw(title_string(title, "="))
++        file.write(title_string(title, "="))
+ 
+-        fw(".. module:: %s.%s\n\n" % (struct_module_name, struct_id))
++        file.write(".. module:: %s.%s\n\n" % (struct_module_name, struct_id))
+ 
+         # docs first?, ok
+-        write_example_ref("", fw, "%s.%s" % (struct_module_name, struct_id))
++        write_example_ref("", file, "%s.%s" % (struct_module_name, struct_id))
+ 
+         base_ids = [base.identifier for base in struct.get_bases()]
+ 
+@@ -1326,12 +1401,12 @@ def pyrna2sphinx(basepath):
+ 
+         if base_ids:
+             if len(base_ids) > 1:
+-                fw("base classes --- ")
++                file.write("base classes --- ")
+             else:
+-                fw("base class --- ")
++                file.write("base class --- ")
+ 
+-            fw(", ".join((":class:`%s`" % base_id) for base_id in base_ids))
+-            fw("\n\n")
++            file.write(", ".join((":class:`%s`" % base_id) for base_id in base_ids))
++            file.write("\n\n")
+ 
+         subclass_ids = [
+             s.identifier for s in structs.values()
+@@ -1340,7 +1415,7 @@ def pyrna2sphinx(basepath):
+         ]
+         subclass_ids.sort()
+         if subclass_ids:
+-            fw("subclasses --- \n" + ", ".join((":class:`%s`" % s) for s in subclass_ids) + "\n\n")
++            file.write("subclasses --- \n" + ", ".join((":class:`%s`" % s) for s in subclass_ids) + "\n\n")
+ 
+         base_id = getattr(struct.base, "identifier", "")
+ 
+@@ -1349,11 +1424,11 @@ def pyrna2sphinx(basepath):
+                 base_id = _BPY_STRUCT_FAKE
+ 
+         if base_id:
+-            fw(".. class:: %s(%s)\n\n" % (struct_id, base_id))
++            file.write(".. class:: %s(%s)\n\n" % (struct_id, base_id))
+         else:
+-            fw(".. class:: %s\n\n" % struct_id)
++            file.write(".. class:: %s\n\n" % struct_id)
+ 
+-        fw("   %s\n\n" % struct.description)
++        file.write("   %s\n\n" % struct.description)
+ 
+         # properties sorted in alphabetical order
+         sorted_struct_properties = struct.properties[:]
+@@ -1371,44 +1446,44 @@ def pyrna2sphinx(basepath):
+             type_descr = prop.get_type_description(class_fmt=":class:`%s`", collection_id=_BPY_PROP_COLLECTION_ID)
+             # readonly properties use "data" directive, variables properties use "attribute" directive
+             if 'readonly' in type_descr:
+-                fw("   .. data:: %s\n\n" % prop.identifier)
++                file.write("   .. data:: %s\n\n" % prop.identifier)
+             else:
+-                fw("   .. attribute:: %s\n\n" % prop.identifier)
++                file.write("   .. attribute:: %s\n\n" % prop.identifier)
+             if prop.description:
+-                fw("      %s\n\n" % prop.description)
++                file.write("      %s\n\n" % prop.description)
+ 
+             # special exception, can't use generic code here for enums
+             if prop.type == "enum":
+-                enum_text = pyrna_enum2sphinx(prop)
++                enum_text = get_doc_enum_property(prop)
+                 if enum_text:
+-                    write_indented_lines("      ", fw, enum_text)
+-                    fw("\n")
++                    write_indented_lines("      ", file, enum_text)
++                    file.write("\n")
+                 del enum_text
+             # end enum exception
+ 
+-            fw("      :type: %s\n\n" % type_descr)
++            file.write("      :type: %s\n\n" % type_descr)
+ 
+         # Python attributes
+         py_properties = struct.get_py_properties()
+         py_prop = None
+         for identifier, py_prop in py_properties:
+-            pyprop2sphinx("   ", fw, identifier, py_prop)
++            pyprop2sphinx("   ", file, identifier, py_prop)
+         del py_properties, py_prop
+ 
+         for func in struct.functions:
+             args_str = ", ".join(prop.get_arg_default(force=False) for prop in func.args)
+ 
+-            fw("   .. %s:: %s(%s)\n\n" %
+-               ("classmethod" if func.is_classmethod else "method", func.identifier, args_str))
+-            fw("      %s\n\n" % func.description)
++            file.write("   .. %s:: %s(%s)\n\n" %
++                       ("classmethod" if func.is_classmethod else "method", func.identifier, args_str))
++            file.write("      %s\n\n" % func.description)
+ 
+             for prop in func.args:
+-                write_param("      ", fw, prop)
++                write_param("      ", file, prop)
+ 
+             if len(func.return_values) == 1:
+-                write_param("      ", fw, func.return_values[0], is_return=True)
++                write_param("      ", file, func.return_values[0], is_return=True)
+             elif func.return_values:  # multiple return values
+-                fw("      :return (%s):\n" % ", ".join(prop.identifier for prop in func.return_values))
++                file.write("      :return (%s):\n" % ", ".join(prop.identifier for prop in func.return_values))
+                 for prop in func.return_values:
+                     # TODO, pyrna_enum2sphinx for multiple return values... actually don't
+                     # think we even use this but still!!!
+@@ -1418,27 +1493,27 @@ def pyrna2sphinx(basepath):
+                     if not descr:
+                         descr = prop.name
+                     # In rare cases descr may be empty
+-                    fw("         `%s`, %s\n\n" %
+-                       (prop.identifier,
+-                        ", ".join((val for val in (descr, type_descr) if val))))
++                    file.write("         `%s`, %s\n\n" %
++                               (prop.identifier,
++                                ", ".join((val for val in (descr, type_descr) if val))))
+ 
+-            write_example_ref("      ", fw, struct_module_name + "." + struct_id + "." + func.identifier)
++            write_example_ref("      ", file, struct_module_name + "." + struct_id + "." + func.identifier)
+ 
+-            fw("\n")
++            file.write("\n")
+ 
+         # Python methods
+         py_funcs = struct.get_py_functions()
+         py_func = None
+ 
+         for identifier, py_func in py_funcs:
+-            pyfunc2sphinx("   ", fw, "bpy.types", struct_id, identifier, py_func, is_class=True)
++            pyfunc2sphinx("   ", file, "bpy.types", struct_id, identifier, py_func, is_class=True)
+         del py_funcs, py_func
+ 
+         py_funcs = struct.get_py_c_functions()
+         py_func = None
+ 
+         for identifier, py_func in py_funcs:
+-            py_c_func2sphinx("   ", fw, "bpy.types", struct_id, identifier, py_func, is_class=True)
++            py_c_func2sphinx("   ", file, "bpy.types", struct_id, identifier, py_func, is_class=True)
+ 
+         lines = []
+ 
+@@ -1467,14 +1542,14 @@ def pyrna2sphinx(basepath):
+                     lines.append("   * :class:`%s.%s`\n" % (base.identifier, identifier))
+ 
+             if lines:
+-                fw(".. rubric:: Inherited Properties\n\n")
++                file.write(".. rubric:: Inherited Properties\n\n")
+ 
+-                fw(".. hlist::\n")
+-                fw("   :columns: 2\n\n")
++                file.write(".. hlist::\n")
++                file.write("   :columns: 2\n\n")
+ 
+                 for line in lines:
+-                    fw(line)
+-                fw("\n")
++                    file.write(line)
++                file.write("\n")
+ 
+             # funcs
+             del lines[:]
+@@ -1493,40 +1568,40 @@ def pyrna2sphinx(basepath):
+                     lines.append("   * :class:`%s.%s`\n" % (base.identifier, identifier))
+ 
+             if lines:
+-                fw(".. rubric:: Inherited Functions\n\n")
++                file.write(".. rubric:: Inherited Functions\n\n")
+ 
+-                fw(".. hlist::\n")
+-                fw("   :columns: 2\n\n")
++                file.write(".. hlist::\n")
++                file.write("   :columns: 2\n\n")
+ 
+                 for line in lines:
+-                    fw(line)
+-                fw("\n")
++                    file.write(line)
++                file.write("\n")
+ 
+             del lines[:]
+ 
+         if struct.references:
+             # use this otherwise it gets in the index for a normal heading.
+-            fw(".. rubric:: References\n\n")
++            file.write(".. rubric:: References\n\n")
+ 
+-            fw(".. hlist::\n")
+-            fw("   :columns: 2\n\n")
++            file.write(".. hlist::\n")
++            file.write("   :columns: 2\n\n")
+ 
+             # context does its own thing
+             # "active_base": ("ObjectBase", False),
+-            for ref_attr, (ref_type, ref_is_seq) in sorted(context_type_map.items()):
++            for ref_attr, (ref_type, ref_is_seq) in sorted(bpy_context_type_map.items()):
+                 if ref_type == struct_id:
+-                    fw("   * :mod:`bpy.context.%s`\n" % ref_attr)
++                    file.write("   * :mod:`bpy.context.%s`\n" % ref_attr)
+             del ref_attr, ref_type, ref_is_seq
+ 
+             for ref in struct.references:
+                 ref_split = ref.split(".")
+                 if len(ref_split) > 2:
+                     ref = ref_split[-2] + "." + ref_split[-1]
+-                fw("   * :class:`%s`\n" % ref)
+-            fw("\n")
++                file.write("   * :class:`%s`\n" % ref)
++            file.write("\n")
+ 
+         # docs last?, disable for now
+-        # write_example_ref("", fw, "bpy.types.%s" % struct_id)
++        # write_example_ref("", file, "bpy.types.%s" % struct_id)
+         file.close()
+ 
+     if "bpy.types" not in EXCLUDE_MODULES:
+@@ -1539,12 +1614,10 @@ def pyrna2sphinx(basepath):
+         def fake_bpy_type(class_module_name, class_value, class_name, descr_str, use_subclasses=True):
+             filepath = os.path.join(basepath, "%s.%s.rst" % (class_module_name, class_name))
+             file = open(filepath, "w", encoding="utf-8")
+-            fw = file.write
+-
+-            fw(title_string(class_name, "="))
++            file.write(title_string(class_name, "="))
+ 
+-            fw(".. module:: %s.%s\n" % (class_module_name, class_name))
+-            fw("\n")
++            file.write(".. module:: %s.%s\n" % (class_module_name, class_name))
++            file.write("\n")
+ 
+             if use_subclasses:
+                 subclass_ids = [
+@@ -1553,13 +1626,14 @@ def pyrna2sphinx(basepath):
+                     if not rna_info.rna_id_ignore(s.identifier)
+                 ]
+                 if subclass_ids:
+-                    fw("subclasses --- \n" + ", ".join((":class:`%s`" % s) for s in sorted(subclass_ids)) + "\n\n")
++                    file.write(
++                        "subclasses --- \n" + ", ".join((":class:`%s`" % s) for s in sorted(subclass_ids)) + "\n\n")
+ 
+-            fw(".. class:: %s\n\n" % class_name)
+-            fw("   %s\n\n" % descr_str)
+-            fw("   .. note::\n\n")
+-            fw("      Note that %s.%s is not actually available from within Blender,\n"
+-               "      it only exists for the purpose of documentation.\n\n" % (class_module_name, class_name))
++            file.write(".. class:: %s\n\n" % class_name)
++            file.write("   %s\n\n" % descr_str)
++            file.write("   .. note::\n\n")
++            file.write("      Note that %s.%s is not actually available from within Blender,\n"
++                       "      it only exists for the purpose of documentation.\n\n" % (class_module_name, class_name))
+ 
+             descr_items = [
+                 (key, descr) for key, descr in sorted(class_value.__dict__.items())
+@@ -1569,11 +1643,11 @@ def pyrna2sphinx(basepath):
+             for key, descr in descr_items:
+                 # GetSetDescriptorType, GetSetDescriptorType's are not documented yet
+                 if type(descr) == MethodDescriptorType:
+-                    py_descr2sphinx("   ", fw, descr, "bpy.types", class_name, key)
++                    py_descr2sphinx("   ", file, descr, "bpy.types", class_name, key)
+ 
+             for key, descr in descr_items:
+                 if type(descr) == GetSetDescriptorType:
+-                    py_descr2sphinx("   ", fw, descr, "bpy.types", class_name, key)
++                    py_descr2sphinx("   ", file, descr, "bpy.types", class_name, key)
+             file.close()
+ 
+         # write fake classes
+@@ -1605,19 +1679,17 @@ def pyrna2sphinx(basepath):
+         for op_module_name, ops_mod in op_modules.items():
+             filepath = os.path.join(basepath, "bpy.ops.%s.rst" % op_module_name)
+             file = open(filepath, "w", encoding="utf-8")
+-            fw = file.write
+-
+             title = "%s Operators" % op_module_name.replace("_", " ").title()
+ 
+-            fw(title_string(title, "="))
++            file.write(title_string(title, "="))
+ 
+-            fw(".. module:: bpy.ops.%s\n\n" % op_module_name)
++            file.write(".. module:: bpy.ops.%s\n\n" % op_module_name)
+ 
+             ops_mod.sort(key=lambda op: op.func_name)
+ 
+             for op in ops_mod:
+                 args_str = ", ".join(prop.get_arg_default(force=True) for prop in op.args)
+-                fw(".. function:: %s(%s)\n\n" % (op.func_name, args_str))
++                file.write(".. function:: %s(%s)\n\n" % (op.func_name, args_str))
+ 
+                 # if the description isn't valid, we output the standard warning
+                 # with a link to the wiki so that people can help
+@@ -1626,11 +1698,11 @@ def pyrna2sphinx(basepath):
+                 else:
+                     operator_description = op.description
+ 
+-                fw("   %s\n\n" % operator_description)
++                file.write("   %s\n\n" % operator_description)
+                 for prop in op.args:
+-                    write_param("   ", fw, prop)
++                    write_param("   ", file, prop)
+                 if op.args:
+-                    fw("\n")
++                    file.write("\n")
+ 
+                 location = op.get_location()
+                 if location != (None, None):
+@@ -1641,8 +1713,8 @@ def pyrna2sphinx(basepath):
+                     else:
+                         url_base = API_BASEURL
+ 
+-                    fw("   :file: `%s\\:%d <%s/%s$%d>`_\n\n" %
+-                       (location[0], location[1], url_base, location[0], location[1]))
++                    file.write("   :file: `%s\\:%d <%s/%s$%d>`_\n\n" %
++                               (location[0], location[1], url_base, location[0], location[1]))
+ 
+             file.close()
+ 
+@@ -1650,61 +1722,57 @@ def pyrna2sphinx(basepath):
+         write_ops()
+ 
+ 
+-def write_sphinx_conf_py(basepath):
+-    '''
+-    Write sphinx's conf.py
+-    '''
++def write_sphinx_conf_py(basepath: str):
++    """ Write sphinx's conf.py """
+     filepath = os.path.join(basepath, "conf.py")
+     file = open(filepath, "w", encoding="utf-8")
+-    fw = file.write
+-
+-    fw("import sys, os\n\n")
+-    fw("extensions = ['sphinx.ext.intersphinx']\n\n")
+-    fw("intersphinx_mapping = {'blender_manual': ('https://docs.blender.org/manual/en/dev/', None)}\n\n")
+-    fw("project = 'Blender %s Python API'\n" % BLENDER_VERSION_DOTS)
+-    fw("master_doc = 'index'\n")
+-    fw("copyright = u'Blender Foundation'\n")
+-    fw("version = '%s'\n" % BLENDER_VERSION_HASH)
+-    fw("release = '%s'\n" % BLENDER_VERSION_HASH)
++    file.write("import sys, os\n\n")
++    file.write("extensions = ['sphinx.ext.intersphinx']\n\n")
++    file.write("intersphinx_mapping = {'blender_manual': ('https://docs.blender.org/manual/en/dev/', None)}\n\n")
++    file.write("project = 'Blender %s Python API'\n" % BLENDER_VERSION_DOTS)
++    file.write("master_doc = 'index'\n")
++    file.write("copyright = u'Blender Foundation'\n")
++    file.write("version = '%s'\n" % BLENDER_VERSION_HASH)
++    file.write("release = '%s'\n" % BLENDER_VERSION_HASH)
+ 
+     # Quiet file not in table-of-contents warnings.
+-    fw("exclude_patterns = [\n")
+-    fw("    'include__bmesh.rst',\n")
+-    fw("]\n\n")
+-
+-    fw("html_title = 'Blender Python API'\n")
+-    fw("html_theme = 'sphinx_rtd_theme'\n")
+-    fw("html_theme_options = {\n")
+-    fw("    'canonical_url': 'https://docs.blender.org/api/current/',\n")
+-    # fw("    'analytics_id': '',\n")
+-    # fw("    'collapse_navigation': True,\n")
+-    fw("    'sticky_navigation': False,\n")
+-    fw("    'navigation_depth': 1,\n")
+-    # fw("    'includehidden': True,\n")
+-    # fw("    'titles_only': False\n")
+-    fw("    }\n\n")
++    file.write("exclude_patterns = [\n")
++    file.write("    'include__bmesh.rst',\n")
++    file.write("]\n\n")
++
++    file.write("html_title = 'Blender Python API'\n")
++    file.write("html_theme = 'sphinx_rtd_theme'\n")
++    file.write("html_theme_options = {\n")
++    file.write("    'canonical_url': 'https://docs.blender.org/api/current/',\n")
++    # file.write("    'analytics_id': '',\n")
++    # file.write("    'collapse_navigation': True,\n")
++    file.write("    'sticky_navigation': False,\n")
++    file.write("    'navigation_depth': 1,\n")
++    # file.write("    'includehidden': True,\n")
++    # file.write("    'titles_only': False\n")
++    file.write("    }\n\n")
+ 
+     # not helpful since the source is generated, adds to upload size.
+-    fw("html_copy_source = False\n")
+-    fw("html_show_sphinx = False\n")
+-    fw("html_use_opensearch = 'https://docs.blender.org/api/current'\n")
+-    fw("html_split_index = True\n")
+-    fw("html_static_path = ['static']\n")
+-    fw("html_extra_path = ['static/favicon.ico', 'static/blender_logo.svg']\n")
+-    fw("html_favicon = 'static/favicon.ico'\n")
+-    fw("html_logo = 'static/blender_logo.svg'\n")
+-    fw("html_last_updated_fmt = '%m/%d/%Y'\n\n")
++    file.write("html_copy_source = False\n")
++    file.write("html_show_sphinx = False\n")
++    file.write("html_use_opensearch = 'https://docs.blender.org/api/current'\n")
++    file.write("html_split_index = True\n")
++    file.write("html_static_path = ['static']\n")
++    file.write("html_extra_path = ['static/favicon.ico', 'static/blender_logo.svg']\n")
++    file.write("html_favicon = 'static/favicon.ico'\n")
++    file.write("html_logo = 'static/blender_logo.svg'\n")
++    file.write("html_last_updated_fmt = '%m/%d/%Y'\n\n")
+ 
+     # needed for latex, pdf gen
+-    fw("latex_elements = {\n")
+-    fw("  'papersize': 'a4paper',\n")
+-    fw("}\n\n")
++    file.write("latex_elements = {\n")
++    file.write("  'papersize': 'a4paper',\n")
++    file.write("}\n\n")
+ 
+-    fw("latex_documents = [ ('contents', 'contents.tex', 'Blender Index', 'Blender Foundation', 'manual'), ]\n")
++    file.write("latex_documents = [ ('contents', 'contents.tex', 'Blender Index', 'Blender Foundation', 'manual'), ]\n")
+ 
+     # Workaround for useless links leading to compile errors
+     # See https://github.com/sphinx-doc/sphinx/issues/3866
+-    fw(r"""
++    file.write(r"""
+ from sphinx.domains.python import PythonDomain
+ 
+ class PatchedPythonDomain(PythonDomain):
+@@ -1716,55 +1784,51 @@ class PatchedPythonDomain(PythonDomain):
+ """)
+     # end workaround
+ 
+-    fw("def setup(app):\n")
+-    fw("    app.add_css_file('css/theme_overrides.css')\n")
+-    fw("    app.add_domain(PatchedPythonDomain, override=True)\n\n")
++    file.write("def setup(app):\n")
++    file.write("    app.add_css_file('css/theme_overrides.css')\n")
++    file.write("    app.add_domain(PatchedPythonDomain, override=True)\n\n")
+ 
+     file.close()
+ 
+ 
+-def execfile(filepath):
++def execfile(filepath: str):
+     global_namespace = {"__file__": filepath, "__name__": "__main__"}
+     file_handle = open(filepath)
+     exec(compile(file_handle.read(), filepath, 'exec'), global_namespace)
+     file_handle.close()
+ 
+ 
+-def write_rst_contents(basepath):
+-    '''
+-    Write the rst file of the main page, needed for sphinx (index.html)
+-    '''
++def write_rst_contents(basepath: str):
++    """ Write the rst file of the main page, needed for sphinx (index.html) """
+     filepath = os.path.join(basepath, "index.rst")
+     file = open(filepath, "w", encoding="utf-8")
+-    fw = file.write
+-
+-    fw(title_string("Blender %s Python API Documentation" % BLENDER_VERSION_DOTS, "%", double=True))
+-    fw("\n")
+-    fw("Welcome to the Python API documentation for `Blender <https://www.blender.org>`__, ")
+-    fw("the free and open source 3D creation suite.\n")
+-    fw("\n")
++    file.write(title_string("Blender %s Python API Documentation" % BLENDER_VERSION_DOTS, "%", double=True))
++    file.write("\n")
++    file.write("Welcome to the Python API documentation for `Blender <https://www.blender.org>`__, ")
++    file.write("the free and open source 3D creation suite.\n")
++    file.write("\n")
+ 
+-    # fw("`A PDF version of this document is also available <%s>`_\n" % BLENDER_PDF_FILENAME)
+-    fw("This site can be used offline: `Download the full documentation (zipped HTML files) <%s>`__\n" %
+-       BLENDER_ZIP_FILENAME)
+-    fw("\n")
++    # file.write("`A PDF version of this document is also available <%s>`_\n" % BLENDER_PDF_FILENAME)
++    file.write("This site can be used offline: `Download the full documentation (zipped HTML files) <%s>`__\n" %
++               BLENDER_ZIP_FILENAME)
++    file.write("\n")
+ 
+     if not EXCLUDE_INFO_DOCS:
+-        fw(".. toctree::\n")
+-        fw("   :maxdepth: 1\n")
+-        fw("   :caption: Documentation\n\n")
++        file.write(".. toctree::\n")
++        file.write("   :maxdepth: 1\n")
++        file.write("   :caption: Documentation\n\n")
+         for info, info_desc in INFO_DOCS:
+-            fw("   %s <%s>\n" % (info_desc, info))
+-        fw("\n")
++            file.write("   %s <%s>\n" % (info_desc, info))
++        file.write("\n")
+ 
+-    fw(".. toctree::\n")
+-    fw("   :maxdepth: 1\n")
+-    fw("   :caption: Application Modules\n\n")
++    file.write(".. toctree::\n")
++    file.write("   :maxdepth: 1\n")
++    file.write("   :caption: Application Modules\n\n")
+ 
+     app_modules = (
+         "bpy.context",  # note: not actually a module
+-        "bpy.data",     # note: not actually a module
+-        "bpy.msgbus",   # note: not actually a module
++        "bpy.data",  # note: not actually a module
++        "bpy.msgbus",  # note: not actually a module
+         "bpy.ops",
+         "bpy.types",
+ 
+@@ -1780,12 +1844,12 @@ def write_rst_contents(basepath):
+ 
+     for mod in app_modules:
+         if mod not in EXCLUDE_MODULES:
+-            fw("   %s\n" % mod)
+-    fw("\n")
++            file.write("   %s\n" % mod)
++    file.write("\n")
+ 
+-    fw(".. toctree::\n")
+-    fw("   :maxdepth: 1\n")
+-    fw("   :caption: Standalone Modules\n\n")
++    file.write(".. toctree::\n")
++    file.write("   :maxdepth: 1\n")
++    file.write("   :caption: Standalone Modules\n\n")
+ 
+     standalone_modules = (
+         # submodules are added in parent page
+@@ -1805,8 +1869,8 @@ def write_rst_contents(basepath):
+ 
+     for mod in standalone_modules:
+         if mod not in EXCLUDE_MODULES:
+-            fw("   %s\n" % mod)
+-    fw("\n")
++            file.write("   %s\n" % mod)
++    file.write("\n")
+ 
+     # special case, this 'bmesh.ops.rst' is extracted from C source
+     if "bmesh.ops" not in EXCLUDE_MODULES:
+@@ -1815,72 +1879,62 @@ def write_rst_contents(basepath):
+     file.close()
+ 
+ 
+-def write_rst_bpy(basepath):
+-    '''
+-    Write rst file of bpy module (disabled by default)
+-    '''
+-    if ARGS.bpy:
+-        filepath = os.path.join(basepath, "bpy.rst")
+-        file = open(filepath, "w", encoding="utf-8")
+-        fw = file.write
+-
+-        fw("\n")
++def write_rst_bpy(basepath: str) -> NoReturn:
++    """ Write rst file of bpy module (disabled by default) """
++    if not ARGS.bpy:
++        return
++    filepath = os.path.join(basepath, "bpy.rst")
++    file = open(filepath, "w", encoding="utf-8")
++    file.write("\n")
+ 
+-        title = ":mod:`bpy` --- Blender Python Module"
++    title = ":mod:`bpy` --- Blender Python Module"
+ 
+-        fw(title_string(title, "="))
++    file.write(title_string(title, "="))
+ 
+-        fw(".. module:: bpy.types\n\n")
+-        file.close()
++    file.write(".. module:: bpy.types\n\n")
++    file.close()
+ 
+ 
+-def write_rst_types_index(basepath):
+-    '''
+-    Write the rst file of bpy.types module (index)
+-    '''
+-    if "bpy.types" not in EXCLUDE_MODULES:
+-        filepath = os.path.join(basepath, "bpy.types.rst")
+-        file = open(filepath, "w", encoding="utf-8")
+-        fw = file.write
+-        fw(title_string("Types (bpy.types)", "="))
+-        fw(".. toctree::\n")
+-        fw("   :glob:\n\n")
+-        fw("   bpy.types.*\n\n")
+-        file.close()
++def write_rst_types_index(basepath: str) -> NoReturn:
++    """ Write the rst file of bpy.types module (index) """
++    if "bpy.types" in EXCLUDE_MODULES:
++        return
++    filepath = os.path.join(basepath, "bpy.types.rst")
++    file = open(filepath, "w", encoding="utf-8")
++    file.write(title_string("Types (bpy.types)", "="))
++    file.write(".. toctree::\n")
++    file.write("   :glob:\n\n")
++    file.write("   bpy.types.*\n\n")
++    file.close()
+ 
+ 
+-def write_rst_ops_index(basepath):
+-    '''
+-    Write the rst file of bpy.ops module (index)
+-    '''
+-    if "bpy.ops" not in EXCLUDE_MODULES:
+-        filepath = os.path.join(basepath, "bpy.ops.rst")
+-        file = open(filepath, "w", encoding="utf-8")
+-        fw = file.write
+-        fw(title_string("Operators (bpy.ops)", "="))
+-        write_example_ref("", fw, "bpy.ops")
+-        fw(".. toctree::\n")
+-        fw("   :glob:\n\n")
+-        fw("   bpy.ops.*\n\n")
+-        file.close()
++def write_rst_ops_index(basepath: str) -> NoReturn:
++    """ Write the rst file of bpy.ops module (index) """
++    if "bpy.ops" in EXCLUDE_MODULES:
++        return
++    filepath = os.path.join(basepath, "bpy.ops.rst")
++    file = open(filepath, "w", encoding="utf-8")
++    file.write(title_string("Operators (bpy.ops)", "="))
++    write_example_ref("", file, "bpy.ops")
++    file.write(".. toctree::\n")
++    file.write("   :glob:\n\n")
++    file.write("   bpy.ops.*\n\n")
++    file.close()
+ 
+ 
+-def write_rst_msgbus(basepath):
+-    """
+-    Write the rst files of bpy.msgbus module
+-    """
++def write_rst_msgbus(basepath: str) -> NoReturn:
++    """ Write the rst files of bpy.msgbus module """
+     if 'bpy.msgbus' in EXCLUDE_MODULES:
+         return
+ 
+     # Write the index.
+     filepath = os.path.join(basepath, "bpy.msgbus.rst")
+     file = open(filepath, "w", encoding="utf-8")
+-    fw = file.write
+-    fw(title_string("Message Bus (bpy.msgbus)", "="))
+-    write_example_ref("", fw, "bpy.msgbus")
+-    fw(".. toctree::\n")
+-    fw("   :glob:\n\n")
+-    fw("   bpy.msgbus.*\n\n")
++    file.write(title_string("Message Bus (bpy.msgbus)", "="))
++    write_example_ref("", file, "bpy.msgbus")
++    file.write(".. toctree::\n")
++    file.write("   :glob:\n\n")
++    file.write("   bpy.msgbus.*\n\n")
+     file.close()
+ 
+     # Write the contents.
+@@ -1888,37 +1942,35 @@ def write_rst_msgbus(basepath):
+     EXAMPLE_SET_USED.add("bpy.msgbus")
+ 
+ 
+-def write_rst_data(basepath):
+-    '''
++def write_rst_data(basepath: str) -> NoReturn:
++    """
+     Write the rst file of bpy.data module
+-    '''
+-    if "bpy.data" not in EXCLUDE_MODULES:
++    """
++    if "bpy.data" in EXCLUDE_MODULES:
++        return
+         # not actually a module, only write this file so we
+-        # can reference in the TOC
+-        filepath = os.path.join(basepath, "bpy.data.rst")
+-        file = open(filepath, "w", encoding="utf-8")
+-        fw = file.write
+-        fw(title_string("Data Access (bpy.data)", "="))
+-        fw(".. module:: bpy\n")
+-        fw("\n")
+-        fw("This module is used for all Blender/Python access.\n")
+-        fw("\n")
+-        fw(".. data:: data\n")
+-        fw("\n")
+-        fw("   Access to Blender's internal data\n")
+-        fw("\n")
+-        fw("   :type: :class:`bpy.types.BlendData`\n")
+-        fw("\n")
+-        fw(".. literalinclude:: ../examples/bpy.data.py\n")
+-        file.close()
++    # can reference in the TOC
++    filepath = os.path.join(basepath, "bpy.data.rst")
++    file = open(filepath, "w", encoding="utf-8")
++    file.write(title_string("Data Access (bpy.data)", "="))
++    file.write(".. module:: bpy\n")
++    file.write("\n")
++    file.write("This module is used for all Blender/Python access.\n")
++    file.write("\n")
++    file.write(".. data:: data\n")
++    file.write("\n")
++    file.write("   Access to Blender's internal data\n")
++    file.write("\n")
++    file.write("   :type: :class:`bpy.types.BlendData`\n")
++    file.write("\n")
++    file.write(".. literalinclude:: ../examples/bpy.data.py\n")
++    file.close()
+ 
+-        EXAMPLE_SET_USED.add("bpy.data")
++    EXAMPLE_SET_USED.add("bpy.data")
+ 
+ 
+-def write_rst_importable_modules(basepath):
+-    '''
+-    Write the rst files of importable modules
+-    '''
++def write_rst_importable_modules(basepath: str) -> NoReturn:
++    """ Write the rst files of importable modules """
+     importable_modules = {
+         # Python_modules
+         "bpy.path": "Path Utilities",
+@@ -1968,8 +2020,7 @@ def write_rst_importable_modules(basepath):
+             pymodule2sphinx(basepath, mod_name, module, mod_descr)
+ 
+ 
+-def copy_handwritten_rsts(basepath):
+-
++def copy_handwritten_rsts(basepath: str) -> NoReturn:
+     # info docs
+     if not EXCLUDE_INFO_DOCS:
+         for info, info_desc in INFO_DOCS:
+@@ -1998,7 +2049,7 @@ def copy_handwritten_rsts(basepath):
+             shutil.copy2(os.path.join(RST_DIR, f), basepath)
+ 
+ 
+-def copy_handwritten_extra(basepath):
++def copy_handwritten_extra(basepath: str) -> NoReturn:
+     for f_src in EXTRA_SOURCE_FILES:
+         if os.sep != "/":
+             f_src = os.sep.join(f_src.split("/"))
+@@ -2013,14 +2064,13 @@ def copy_handwritten_extra(basepath):
+         shutil.copy2(f_src, f_dst)
+ 
+ 
+-def copy_theme_assets(basepath):
++def copy_theme_assets(basepath: str) -> NoReturn:
+     shutil.copytree(os.path.join(SCRIPT_DIR, "static"),
+                     os.path.join(basepath, "static"),
+                     copy_function=shutil.copy)
+ 
+ 
+-def rna2sphinx(basepath):
+-
++def rna2sphinx(basepath: str) -> NoReturn:
+     try:
+         os.mkdir(basepath)
+     except:
+@@ -2037,15 +2087,19 @@ def rna2sphinx(basepath):
+         # one of a kind, context doc (uses ctypes to extract info!)
+         # doesn't work on mac and windows
+         if PLATFORM not in {"darwin", "windows"}:
+-            pycontext2sphinx(basepath)
++            bpy_context = get_bpy_context()
++            BPY_LOGGER.debug(f'this is result class= {bpy_context}')
++            write_rst_bpy_context(basepath, bpy_context)
++            write_py_stub_bpy_context(basepath, bpy_context)
++            sys.exit()
+ 
+     # internal modules
+-    write_rst_bpy(basepath)                 # bpy, disabled by default
+-    write_rst_types_index(basepath)         # bpy.types
+-    write_rst_ops_index(basepath)           # bpy.ops
+-    write_rst_msgbus(basepath)              # bpy.msgbus
+-    pyrna2sphinx(basepath)                  # bpy.types.* and bpy.ops.*
+-    write_rst_data(basepath)                # bpy.data
++    write_rst_bpy(basepath)  # bpy, disabled by default
++    write_rst_types_index(basepath)  # bpy.types
++    write_rst_ops_index(basepath)  # bpy.ops
++    write_rst_msgbus(basepath)  # bpy.msgbus
++    pyrna2sphinx(basepath)  # bpy.types.* and bpy.ops.*
++    write_rst_data(basepath)  # bpy.data
+     write_rst_importable_modules(basepath)
+ 
+     # copy the other rsts
+@@ -2058,10 +2112,8 @@ def rna2sphinx(basepath):
+     copy_theme_assets(basepath)
+ 
+ 
+-def align_sphinx_in_to_sphinx_in_tmp(dir_src, dir_dst):
+-    '''
+-    Move changed files from SPHINX_IN_TMP to SPHINX_IN
+-    '''
++def align_sphinx_in_to_sphinx_in_tmp(dir_src: str, dir_dst: str) -> NoReturn:
++    """ Move changed files from SPHINX_IN_TMP to SPHINX_IN """
+     import filecmp
+ 
+     # possible the dir doesn't exist when running recursively
+@@ -2098,7 +2150,7 @@ def align_sphinx_in_to_sphinx_in_tmp(dir_src, dir_dst):
+                 shutil.copy(f_src, f_dst)
+ 
+ 
+-def refactor_sphinx_log(sphinx_logfile):
++def refactor_sphinx_log(sphinx_logfile: str):
+     refactored_log = []
+     with open(sphinx_logfile, "r", encoding="utf-8") as original_logfile:
+         lines = set(original_logfile.readlines())
+@@ -2134,7 +2186,6 @@ def setup_blender():
+ 
+ 
+ def main():
+-
+     # First monkey patch to load in fake members.
+     setup_monkey_patch()
+ 
+@@ -2142,7 +2193,7 @@ def main():
+     setup_blender()
+ 
+     # eventually, create the dirs
+-    for dir_path in [ARGS.output_dir, SPHINX_IN]:
++    for dir_path in [SPHINX_OUT, SPHINX_IN]:
+         if not os.path.exists(dir_path):
+             os.mkdir(dir_path)
+ 
+diff --git a/source/blender/python/intern/bpy_rna.c b/source/blender/python/intern/bpy_rna.c
+index cc981c7c2e1..c2de01a1e13 100644
+--- a/source/blender/python/intern/bpy_rna.c
++++ b/source/blender/python/intern/bpy_rna.c
+@@ -351,7 +351,7 @@ void pyrna_write_set(bool val)
+ {
+   rna_disallow_writes = !val;
+ }
+-#else  /* USE_PEDANTIC_WRITE */
++#else /* USE_PEDANTIC_WRITE */
+ bool pyrna_write_check(void)
+ {
+   return true;
+@@ -773,7 +773,7 @@ PyObject *pyrna_math_object_from_array(PointerRNA *ptr, PropertyRNA *prop)
+       ret = pyrna_prop_CreatePyObject(ptr, prop); /* Owned by the mathutils PyObject. */
+     }
+   }
+-#else  /* USE_MATHUTILS */
++#else /* USE_MATHUTILS */
+   (void)ptr;
+   (void)prop;
+ #endif /* USE_MATHUTILS */
+@@ -1545,7 +1545,7 @@ PyObject *pyrna_prop_to_py(PointerRNA *ptr, PropertyRNA *prop)
+       else {
+         ret = PyUnicode_FromStringAndSize(buf, buf_len);
+       }
+-#else  /* USE_STRING_COERCE */
++#else /* USE_STRING_COERCE */
+       if (subtype == PROP_BYTESTRING) {
+         ret = PyBytes_FromStringAndSize(buf, buf_len);
+       }
+@@ -1858,7 +1858,7 @@ static int pyrna_py_to_prop(
+           else {
+             param = _PyUnicode_AsString(value);
+           }
+-#else  /* USE_STRING_COERCE */
++#else /* USE_STRING_COERCE */
+           param = _PyUnicode_AsString(value);
+ #endif /* USE_STRING_COERCE */
+ 
+@@ -6496,7 +6496,7 @@ PyTypeObject pyrna_struct_Type = {
+     /* delete references to contained objects */
+     (inquiry)pyrna_struct_clear, /* inquiry tp_clear; */
+ #else
+-    NULL,         /* traverseproc tp_traverse; */
++    NULL, /* traverseproc tp_traverse; */
+ 
+     /* delete references to contained objects */
+     NULL, /* inquiry tp_clear; */
+@@ -8688,6 +8688,9 @@ void pyrna_free_types(void)
+  * - Should still be fixed - Campbell
+  * */
+ PyDoc_STRVAR(pyrna_register_class_doc,
++             "register_class($module, cls, /)\n"
++             "--\n"
++             "\n"
+              ".. method:: register_class(cls)\n"
+              "\n"
+              "   Register a subclass of a blender type in (:class:`bpy.types.Panel`,\n"
